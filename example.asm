@@ -3,7 +3,7 @@
 
 .DATA
 
-hello db "Hello!", 10, 13, '$'
+hello db "it's exampe exe!", 10, 13, '$'
 
 
 .CODE

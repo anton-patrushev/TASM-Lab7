@@ -8,6 +8,8 @@ empty_segment ENDS
 
 .DATA
 
+dta_buffer db 128 dup(0)
+
 find_end db 0
 es_seg dw 0
 number dw 0
@@ -24,7 +26,13 @@ folder db "./build", 0
 find_pattern db "/*.exe", 0
 filename db 20 dup (0)
 
-path         db 25 dup (0), '$'
+find_temp db "./build/*.exe", 0
+
+path_first db "./build/temp1.exe", 0
+path_second db "./build/temp2.exe", 0
+path_third db "./build/temp3.exe", 0
+
+path         db 25 dup (0)
 command_line db 0
 epb          dw 0 ;2 bytes - seg_env 
 cmd_off      dw ?
@@ -32,22 +40,24 @@ cmd_seg      dw ?
 fcb1         dd ?
 fcb2         dd ?
 
-dta_buffer db 128 dup(0)
-
 .CODE
+jmp start
 
+save_dta dw 0
 save_ss dw 0
 save_sp dw 0
 save_es dw 0
 save_ds dw 0
-
-jmp start
 
 init macro
   mov ax, @data
   mov ds, ax
   mov ax, es
   mov word ptr ds:[es_seg], ax
+
+  mov ah, 1ah
+  mov dx, offset dta_buffer
+  int 21h
 endm
 
 exit macro
@@ -227,9 +237,12 @@ load_and_run proc
   push bx
   push dx
 
-  mov cs:[save_ss], ss
-  mov cs:[save_sp], sp
-  mov cs:[save_ds], ds
+  mov ah, 2fh
+  int 21h
+
+  mov word ptr cs:[save_ss], ss
+  mov word ptr cs:[save_sp], sp
+  mov word ptr cs:[save_ds], ds
   
   mov bx, offset command_line     ; cli address (first byte is length, next is cli itself)
   mov cmd_off, bx
@@ -243,13 +256,16 @@ load_and_run proc
   int 21h
   jc load_and_run_error
 
-  mov ss, cs:[save_ss]
-  mov sp, cs:[save_sp]
-  mov ds, cs:[save_ds]
+  mov ss, word ptr cs:[save_ss]
+  mov sp, word ptr cs:[save_sp]
+  mov ds, word ptr cs:[save_ds]
 
-  jmp load_and_run_success
+  jmp load_and_run_end
 
   load_and_run_error:
+    mov ss, word ptr cs:[save_ss]
+    mov sp, word ptr cs:[save_sp]
+    mov ds, word ptr cs:[save_ds]
     mov word ptr ds:[number], ax
     call_log load_and_run_error_message
     call_log endl
@@ -259,13 +275,6 @@ load_and_run proc
     call_log temp_buffer
     call_log endl
     mov si, 1                       ; signal error
-  jmp load_and_run_end
-  
-  load_and_run_success:
-    mov ax, @data
-    mov ds, ax
-    mov bx, offset es_seg
-    mov es, word ptr ds:[bx]
 
   load_and_run_end:
   pop dx
@@ -305,7 +314,7 @@ prepare_for_load_and_run proc
   jmp prepare_for_load_and_run_filename
   exit_prepare_for_load_and_run_filename:
 
-  call_log path
+  ; call_log path
 
   pop di
   pop bx
@@ -317,14 +326,19 @@ call_load_and_run macro
   push ax
   push bx
 
-  mov cs:[save_es], es
+  mov ax, es:[bx]
+  mov cs:[save_dta], ax
+  mov word ptr cs:[save_es], es
   mov bx, @data
   mov es, bx
   push offset path
   call load_and_run
   pop dx
 
-  mov es, cs:[save_es]
+  mov es, word ptr cs:[save_es]
+  mov ah, 1ah
+  mov dx, offset dta_buffer
+  int 21h
 
   pop bx
   pop ax
@@ -372,20 +386,14 @@ find_file proc
   jc find_file_error
   jmp find_file_prepare
 
-  next_call:
-  mov ah, 1ah
+  next_call: 
   mov dx, offset dta_buffer
-  ; int 21h
-
-  call_log success_message
-  call_log endl 
-
   mov ah, 4fh
   int 21h
   jc find_file_error
   
   find_file_prepare:
-  mov si, 0080h + 1Eh           ; DTA begin + search result (filename in ASCIIZ format)
+  mov si, offset dta_buffer + 1Eh           ; DTA begin + search result (filename in ASCIIZ format)
   mov di, offset filename  ; buffer for copy file name
   mov cx, 13                    ; buffer_size
   jmp find_file_success
@@ -403,31 +411,18 @@ find_file proc
   jmp find_file_end
 
   find_file_success:
-    mov al, byte ptr es:[si]
+    mov al, byte ptr ds:[si]
     mov byte ptr ds:[di], al
     cmp al, 0
     je find_file_copy_end
     inc si
     inc di
   loop find_file_success
-  
-  ; cmp bx, 1
-  ; je find_file_copy_end
-  mov si, 0080h
-  mov di, offset dta_buffer
-  mov cx, 128
-  copy_dta:
-    mov al, byte ptr es:[si]
-    mov byte ptr ds:[di], al
-    inc si
-    inc di
-  loop copy_dta
-
-  call_log filename
-  call_log endl
 
   find_file_copy_end:
 
+  ; call_log filename
+  ; call_log endl
   find_file_end:
   pop bx
   pop si
@@ -448,37 +443,35 @@ endm
 start:
   call allocate_memory
   cmp dx, 1
-  je start_end
+  jne allocate_memory_success
   
+  exit
+
+  allocate_memory_success:
   init
 
-  ; mov ax, ds
-  ; mov es, ax
+  mov ah, 1ah
+  mov dx, offset dta_buffer
+  int 21h
 
-  mov cx, 1
+  call_find_file 1
+  cmp ds:[find_end], 1
+  je start_end
+
+  call_load_and_run
+  cmp si, 1
+  je start_end
+
   app_loop:
-    call_find_file cx
-    mov cx, 0
+    call_find_file 0
     cmp ds:[find_end], 1
     je start_end
 
-    ; call prepare_for_load_and_run
     call_load_and_run
     cmp si, 1
     je start_end
-    ; call_log success_message
-    ; call_log endl
   jmp app_loop
 
-  ; call_log current_folder
-  ; call_log endl
-
-  ; call_find_file 1
-  ; call_find_file 0
-  ; call_find_file 0
-
   start_end:
-  call_find_file cx
-  call_find_file cx
   exit
 end start
