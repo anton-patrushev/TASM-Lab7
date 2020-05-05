@@ -3,8 +3,7 @@
 
 .DATA
 
-hello db "Hello!", 10, 13, '$'
-
+hello db "-> -> TS <- <-", 10, 13, '$'
 
 .CODE
 jmp start

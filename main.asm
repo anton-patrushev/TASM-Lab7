@@ -17,22 +17,19 @@ endl db  10, 13, '$'
 space db " ", '$'
 success_message db "success", '$'
 temp_buffer db 14 dup ('$')
+error_parsing db "Failed to parse command line args", '$'
 allocate_error_message db "Unable to alocate memory", '$'
 load_and_run_error_message db "Unable to load and run programm", '$'
 error_status_code_message db "Error status code ->", '$'
 file_error db "File Error", '$'
-; folder db 14 dup (0)
-folder db "./build", 0
+; folder db "./BUILD", 0
+folder db 15 dup (0)
 find_pattern db "/*.exe", 0
 filename db 20 dup (0)
 
-find_temp db "./build/*.exe", 0
+; find_temp db "./build/*.exe", 0
 
-path_first db "./build/temp1.exe", 0
-path_second db "./build/temp2.exe", 0
-path_third db "./build/temp3.exe", 0
-
-path         db 25 dup (0)
+path         db 25 dup ('$')
 command_line db 0
 epb          dw 0 ;2 bytes - seg_env 
 cmd_off      dw ?
@@ -52,12 +49,6 @@ save_ds dw 0
 init macro
   mov ax, @data
   mov ds, ax
-  mov ax, es
-  mov word ptr ds:[es_seg], ax
-
-  mov ah, 1ah
-  mov dx, offset dta_buffer
-  int 21h
 endm
 
 exit macro
@@ -326,8 +317,8 @@ call_load_and_run macro
   push ax
   push bx
 
-  mov ax, es:[bx]
-  mov cs:[save_dta], ax
+  ; mov ax, es:[bx]
+  ; mov cs:[save_dta], ax
   mov word ptr cs:[save_es], es
   mov bx, @data
   mov es, bx
@@ -440,21 +431,69 @@ call_find_file macro first
   pop si
 endm
 
+parse_command_line proc
+  push di
+  push bx
+  push ax
+  push cx
+  ; `es` contain `PSP` segment address
+  ; store file name in `file_name`
+
+  xor bx, bx
+  mov bl, byte ptr es:[80h] ; cli args length
+  cmp bl, 0
+  jbe bad_args
+  jmp parse_command_line_continue
+  
+  bad_args:
+  call_log error_parsing
+  ; сall_log endl
+  exit
+
+  parse_command_line_continue:
+  mov di, 81h
+  mov al, ' '
+  rep scasb ; skip all spaces
+  ; dec di
+  dec di
+
+  xor cx, cx
+  mov cl, byte ptr es:[80h]
+  dec cl
+
+  mov bx, offset folder
+  copy_folder_name:
+    mov al, byte ptr es:[di]
+    mov byte ptr ds:[bx], al
+    inc di
+    inc bx
+  loop copy_folder_name
+  ; mov byte ptr ds:[bx], 0
+  
+  parse_command_line_end:
+  pop cx
+  pop ax
+  pop bx
+  pop di
+  ret
+endp
+
 start:
   call allocate_memory
   cmp dx, 1
   jne allocate_memory_success
-  
   exit
 
   allocate_memory_success:
   init
+  call parse_command_line
 
   mov ah, 1ah
   mov dx, offset dta_buffer
   int 21h
 
   call_find_file 1
+  ; call_log path
   cmp ds:[find_end], 1
   je start_end
 
