@@ -8,14 +8,12 @@ empty_segment ENDS
 
 .DATA
 
-dta_buffer db 128 dup(0)
+dta_buffer db 128 dup(0)            ;dta local copy
 
-find_end db 0
-es_seg dw 0
+find_end db 0                       ; find_end flag                           
 number dw 0
 endl db  10, 13, '$'
 space db " ", '$'
-success_message db "success", '$'
 temp_buffer db 14 dup ('$')
 error_parsing db "Failed to parse command line args", '$'
 allocate_error_message db "Unable to alocate memory", '$'
@@ -31,20 +29,20 @@ filename db 20 dup (0)
 
 path         db 25 dup ('$')
 command_line db 0
-epb          dw 0 ;2 bytes - seg_env 
-cmd_off      dw ?
+epb          dw 0         ; 2 bytes - seg_env (enviroment segement address (if 0 = copy from parent))
+cmd_off      dw ? 
 cmd_seg      dw ?
-fcb1         dd ?
-fcb2         dd ?
+fcb1         dd ?         ; address of FCB structure (37 bytes for file description)
+fcb2         dd ?         ; address of FCB structure (37 bytes for file description)
 
 .CODE
 jmp start
 
-save_dta dw 0
-save_ss dw 0
-save_sp dw 0
-save_es dw 0
-save_ds dw 0
+save_dta dw 0     ; for restoring
+save_ss dw 0      ; for restoring
+save_sp dw 0      ; for restoring
+save_es dw 0      ; for restoring
+save_ds dw 0      ; for restoring
 
 init macro
   mov ax, @data
@@ -199,7 +197,7 @@ allocate_memory proc
 
   mov ax, es                      ; program start segment address (in paragraphs)
   mov bx, empty_segment           ; program end segment address (in paragraphs)
-  sub bx, ax
+  sub bx, ax                      ; BX contain minimum required memory size for programm
 
   mov ah, 4Ah
   int 21h
@@ -275,6 +273,7 @@ load_and_run proc
   ret
 endp
 
+; bundle folder + found file_name into full path
 prepare_for_load_and_run proc
   push bx
   push di
